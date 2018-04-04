@@ -11,6 +11,12 @@ class AlphaVantage {
   getData(String function, String symbol, {Map<String, String> extras, String datatype: "json"}){
     // return the URL data
     // TODO API CALL
+    String parameters = "";
+    extras.forEach((param, value){
+      parameters = (parameters=="")?"$param=$value":"$parameters&$param=$value";
+    });
+    String URL = "https://www.alphavantage.co/query?function=$function&symbol=$symbol&${(parameters!="")?parameters:""}&apikey=$APIKey";
+    return URL;
   }
 
   // Stock APIS
