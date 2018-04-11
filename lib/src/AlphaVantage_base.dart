@@ -3,7 +3,26 @@ import 'dart:convert';
 
 class AlphaVantage {
   String APIKey;
-  AlphaVantage(this.APIKey);
+  HttpClient _hc;
+  static DateTime _last;
+  AlphaVantage(this.APIKey){
+    _hc = new HttpClient();
+  }
+  // if only doing 1 data pull
+  closeConnection(){
+    _hc.close();
+  }
+  // time elapsed since last time data was retrieved
+  Duration timeElapsed(){
+    DateTime now = new DateTime.now();
+    return now.difference(_last);
+  }
+  // milliseconds until next data pull
+  // Alpha Vantage requests that we make one API call per second. Do with this what you will.
+  int millisecondsToNext(){
+    Duration elapsed = timeElapsed();
+    return 1000-(elapsed.inMilliseconds);
+  }
 
   final List<int> intraday_intervals = [1, 5, 15, 30, 60];
   final List<dynamic> technical_intervals = [1, 5, 15, 30, 60, "1min", "5min", "15min", "30min", "60min", "daily", "weekly", "monthly"];
@@ -11,19 +30,16 @@ class AlphaVantage {
 
 
   getData(String function, String symbol, {Map<String, String> extras, String datatype: "json"}) async {
-    // return the URL data
-    // TODO API CALL
     String parameters = "";
     extras.forEach((param, value){
       parameters = (parameters=="")?"$param=$value":"$parameters&$param=$value";
     });
     String URL = "https://www.alphavantage.co/query?function=$function&symbol=$symbol${(parameters!="")?"&$parameters":""}&apikey=$APIKey";
-    HttpClient hc = new HttpClient();
-    String ret = await hc.getUrl(Uri.parse(URL))
+    _last = new DateTime.now();
+    String ret = await _hc.getUrl(Uri.parse(URL))
         .then((HttpClientRequest request) => request.close())
         .then((HttpClientResponse response) =>
         response.transform(new Utf8Decoder()).join());
-    hc.close();
     return ret;
   }
 
