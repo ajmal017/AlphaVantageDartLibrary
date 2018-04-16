@@ -4,7 +4,8 @@ import 'dart:io';
 
 getMSFT(AlphaVantage av) async {
   String data = await av.Stock_Daily("MSFT");
-  Map variable = JSON.decode(data);
+  JsonDecoder jd = new JsonDecoder();
+  Map variable = jd.convert(data);
   Map allStockData = variable[variable.keys.toList()[1]];
   print("All stock data");
   print(allStockData);
@@ -22,8 +23,8 @@ main()  async  {
   // sleep can be fine tuned, from my test station, I need to subtract 10
   // milliseconds to get it closer to almost extactly 1 second per call
   sleep(new Duration(milliseconds: av.millisecondsToNext()));
-  await getMSFT(av);
-  sleep(new Duration(milliseconds: av.millisecondsToNext()));
+  String input = await av.Stock_Batch_Quote(["MSFT","FB","AAPL"], datatype: "JSON");
+  print(input);
   av.closeConnection();
 
   DateTime end = new DateTime.now();

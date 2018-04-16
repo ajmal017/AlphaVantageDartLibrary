@@ -21,7 +21,8 @@ class AlphaVantage {
   // Alpha Vantage requests that we make one API call per second. Do with this what you will.
   int millisecondsToNext(){
     Duration elapsed = timeElapsed();
-    return 1000-(elapsed.inMilliseconds);
+    int milliseconds = 1000-(elapsed.inMilliseconds);
+    return (milliseconds>0)?milliseconds:0;
   }
 
   final List<int> intraday_intervals = [1, 5, 15, 30, 60];
@@ -31,16 +32,19 @@ class AlphaVantage {
 
   getData(String function, String symbol, {Map<String, String> extras, String datatype: "json"}) async {
     String parameters = "";
-    extras.forEach((param, value){
-      parameters = (parameters=="")?"$param=$value":"$parameters&$param=$value";
-    });
+    if(extras!=null) {
+      extras.forEach((param, value) {
+        parameters =
+        (parameters == "") ? "$param=$value" : "$parameters&$param=$value";
+      });
+    }
     String URL = "https://www.alphavantage.co/query?function=$function&symbol=$symbol${(parameters!="")?"&$parameters":""}&apikey=$APIKey";
     _last = new DateTime.now();
     String ret = await _hc.getUrl(Uri.parse(URL))
         .then((HttpClientRequest request) => request.close())
         .then((HttpClientResponse response) =>
         response.transform(new Utf8Decoder()).join());
-    return ret;
+    return await ret;
   }
 
   // Stock APIS
