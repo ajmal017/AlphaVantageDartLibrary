@@ -39,6 +39,7 @@ class AlphaVantage {
       });
     }
     String URL = "https://www.alphavantage.co/query?function=$function&symbol=$symbol${(parameters!="")?"&$parameters":""}&apikey=$APIKey";
+    print(URL);
     _last = new DateTime.now();
     String ret = await _hc.getUrl(Uri.parse(URL))
         .then((HttpClientRequest request) => request.close())
