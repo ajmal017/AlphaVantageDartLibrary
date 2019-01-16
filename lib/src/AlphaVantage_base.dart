@@ -1,12 +1,22 @@
+library AlphaVantage;
+
 import 'dart:io';
 import 'dart:convert';
+
+part 'AlphaVantageErrors.dart';
+part 'AlphaVantageCheckers.dart';
 
 class AlphaVantage {
   String APIKey;
   HttpClient _hc;
+  String datatype;
   static DateTime _last;
-  AlphaVantage(this.APIKey){
+  AlphaVantage(this.APIKey, [this.datatype]){
     _hc = new HttpClient();
+    if(datatype==null||!"jsoncsv".contains(datatype.toLowerCase())||datatype.length>4||datatype.length<3){
+      // make sure we get a valid datatype
+      this.datatype = 'json';
+    }
   }
   // if only doing 1 data pull
   closeConnection(){
@@ -25,12 +35,7 @@ class AlphaVantage {
     return (milliseconds>0)?milliseconds:0;
   }
 
-  final List<int> intraday_intervals = [1, 5, 15, 30, 60];
-  final List<dynamic> technical_intervals = [1, 5, 15, 30, 60, "1min", "5min", "15min", "30min", "60min", "daily", "weekly", "monthly"];
-  final List<String> series_type_list = ["close", "open", "high", "low"];
-
-
-  getData(String function, String symbol, {Map<String, String> extras, String datatype: "json"}) async {
+  getData(String function, String symbol, {Map<String, String> extras}) async {
     String parameters = "";
     if(extras!=null) {
       extras.forEach((param, value) {
@@ -38,7 +43,8 @@ class AlphaVantage {
         (parameters == "") ? "$param=$value" : "$parameters&$param=$value";
       });
     }
-    String URL = "https://www.alphavantage.co/query?function=$function&${(function == "BATCH_STOCK_QUOTES")?"symbols":"symbol"}=$symbol${(parameters!="")?"&$parameters":""}&apikey=$APIKey";
+    parameters+="&datatype=$datatype&apikey=$APIKey";
+    String URL = "https://www.alphavantage.co/query?function=$function&${(function == "SECTOR")?"":"symbol=$symbol"}${(parameters!="")?"&$parameters":""}";
     _last = new DateTime.now();
     String ret = await _hc.getUrl(Uri.parse(URL))
         .then((HttpClientRequest request) => request.close())
@@ -48,198 +54,348 @@ class AlphaVantage {
   }
 
   // Stock APIS
-
   Stock_Intraday(String symbol, int interval, {bool isFullSized: false, String datatype: "json"}){
     if(intraday_intervals.contains(interval)){
       Map<String, String> extras = {};
       if(isFullSized) extras["outputsize"] = "full";
       extras["interval"] = "${interval}min";
-      return getData("TIME_SERIES_INTRADAY", symbol, extras: extras, datatype: datatype);
+      return getData("TIME_SERIES_INTRADAY", symbol, extras: extras);
     } else {
       print("Invalid interval entered");
       return "";
     }
   }
 
-  Stock_Daily(String symbol, {bool isFullSized: false, String datatype: "json"}){
+  Stock_Daily(String symbol, {bool isFullSized: false}){
     Map<String, String> extras = {};
     if(isFullSized) extras["outputsize"] = "full";
-    return getData("TIME_SERIES_DAILY", symbol, extras: extras, datatype: datatype);
+    return getData("TIME_SERIES_DAILY", symbol, extras: extras);
   }
 
-  Stock_Daily_Adjusted(String symbol, {bool isFullSized: false, String datatype: "json"}){
+  Stock_Daily_Adjusted(String symbol, {bool isFullSized: false}){
     Map<String, String> extras = {};
     if(isFullSized) extras["outputsize"] = "full";
-    return getData("TIME_SERIES_DAILY_ADJUSTED", symbol, extras: extras, datatype: datatype);
+    return getData("TIME_SERIES_DAILY_ADJUSTED", symbol, extras: extras);
   }
 
-  Stock_Weekly(String symbol, {String datatype: "json"}){
-    return getData("TIME_SERIES_WEEKLY", symbol, datatype: datatype);
+  Stock_Weekly(String symbol){
+    return getData("TIME_SERIES_WEEKLY", symbol);
   }
 
-  Stock_Weekly_Adjusted(String symbol, {String datatype: "json"}){
-    return getData("TIME_SERIES_WEEKLY_ADJUSTED", symbol, datatype: datatype);
+  Stock_Weekly_Adjusted(String symbol){
+    return getData("TIME_SERIES_WEEKLY_ADJUSTED", symbol);
   }
 
-  Stock_Monthly(String symbol, {String datatype: "json"}){
-    return getData("TIME_SERIES_MONTHLY", symbol, datatype: datatype);
+  Stock_Monthly(String symbol){
+    return getData("TIME_SERIES_MONTHLY", symbol);
   }
 
-  Stock_Monthly_Adjusted(String symbol, {String datatype: "json"}){
-    return getData("TIME_SERIES_MONTHLY_ADJUSTED", symbol, datatype: datatype);
-  }
-
-  Stock_Batch_Quote(List<String> symbols, {String datatype: "json"}){
-    if(symbols.length>100){
-      print("Too many symbols entered");
-      symbols = symbols.sublist(0, 100);
-    } else if(symbols.length==0){
-      print("No symbols entered");
-      return "{}";
-    }
-    String symbol = "";
-    symbols.forEach(
-            (sym){
-              (symbol=="")?symbol=sym:symbol="$symbol,$sym";
-            });
-    return getData("BATCH_STOCK_QUOTES", symbol, datatype: datatype);
+  Stock_Monthly_Adjusted(String symbol){
+    return getData("TIME_SERIES_MONTHLY_ADJUSTED", symbol);
   }
 
   // Stock Technical Indicators
+  _TechSI(String func, String symbol, dynamic interval, {Map extras=const {}}){
+    if(inList(interval, technical_intervals , func, 'interval')){
+      extras.addAll({'interval':interval});
+      return getData(func, symbol, extras: extras);
+    }
+  }
 
-  Stock_Technicals(String func, String symbol, dynamic interval, int time_period, String series_type, [Map<String, String> extraExtra]){
-    if(time_period<1){
-      print("Time period must be a positive integer.");
-      return "";
+  _TechSIT(String func, String symbol, dynamic interval, String series_type, {Map extras=const {}}){
+    if(inList(series_type, series_type_list, func, 'series_type')){
+      extras.addAll({"series_type": series_type});
+      return _TechSI(func, symbol, interval, extras: extras);
     }
-    if(!series_type_list.contains(series_type)){
-      print("Invalid series type provided");
-      return "";
+  }
+
+  _TechSIP(String func, String symbol, dynamic interval, int time_period, {Map extras=const {}}){
+    if(isPositive(time_period, func, 'time_period')){
+      extras.addAll({"time_period":time_period.toString()});
+      return _TechSI(func, symbol, interval);
     }
-    if(!technical_intervals.contains(interval)){
-      print("Invalid interval entered");
-      return "";
+  }
+
+  _TechSIPT(String func, String symbol, dynamic interval, int time_period, String series_type, {Map extras=const {}}){
+    if(inList(series_type, series_type_list, func, 'series_type')){
+      extras.addAll({"series_type": series_type});
+      return _TechSIP(func, symbol, interval, time_period, extras: extras);
     }
-    Map<String, String> extras = {};
-    if(interval is int){
-      interval = "${interval}min";
-    }
-    extras["interval"] = interval;
-    extras["time_period"] = time_period.toString();
-    extras["series_type"] = series_type;
-    if(extraExtra.length>0){
-      extras.addAll(extraExtra);
-    }
-    return getData(func, symbol, extras: extras);
   }
 
   SMA(String symbol, dynamic interval, int time_period, String series_type){
-    return Stock_Technicals("SMA", symbol, interval, time_period, series_type);
+    return _TechSIPT("SMA", symbol, interval, time_period, series_type);
   }
 
   EMA(String symbol, dynamic interval, int time_period, String series_type){
-    return Stock_Technicals("EMA", symbol, interval, time_period, series_type);
+    return _TechSIPT("EMA", symbol, interval, time_period, series_type);
   }
 
   WMA(String symbol, dynamic interval, int time_period, String series_type){
-    return Stock_Technicals("WMA", symbol, interval, time_period, series_type);
+    return _TechSIPT("WMA", symbol, interval, time_period, series_type);
   }
 
   DEMA(String symbol, dynamic interval, int time_period, String series_type){
-    return Stock_Technicals("DEMA", symbol, interval, time_period, series_type);
+    return _TechSIPT("DEMA", symbol, interval, time_period, series_type);
   }
 
   TEMA(String symbol, dynamic interval, int time_period, String series_type){
-    return Stock_Technicals("TEMA", symbol, interval, time_period, series_type);
+    return _TechSIPT("TEMA", symbol, interval, time_period, series_type);
   }
 
   TRIMA(String symbol, dynamic interval, int time_period, String series_type){
-    return Stock_Technicals("TRIMA", symbol, interval, time_period, series_type);
+    return _TechSIPT("TRIMA", symbol, interval, time_period, series_type);
   }
 
   KAMA(String symbol, dynamic interval, int time_period, String series_type){
-    return Stock_Technicals("KAMA", symbol, interval, time_period, series_type);
+    return _TechSIPT("KAMA", symbol, interval, time_period, series_type);
   }
 
   MAMA(String symbol, dynamic interval, int time_period, String series_type, {double fastlimit, double slowlimit}){
-    Map<String, String> extraExtra = {};
-    if(fastlimit!=null){
-      if(!(fastlimit>0||fastlimit<1)){
-        print("fastlimit must be between 0 and 1");
-        return "";
-      }
-      extraExtra["fastlimit"] = fastlimit.toString();
+    String func = "MAMA";
+    if(isPositive(fastlimit, func, "fastlimit")&&
+        isPositive(slowlimit, func, "slowlimit")){
+      return _TechSIPT("MAMA", symbol, interval, time_period, series_type,
+          extras: {
+            "fastlimit":fastlimit,
+            "slowlimit":slowlimit
+          });
     }
-    if(slowlimit!=null){
-      if(!(slowlimit>0||slowlimit<1)){
-        print("slowlimit must be between 0 and 1");
-        return "";
-      }
-      extraExtra["slowlimit"] = slowlimit.toString();
-    }
-    return Stock_Technicals("MAMA", symbol, interval, time_period, series_type, extraExtra);
   }
 
   T3(String symbol, dynamic interval, int time_period, String series_type){
-    return Stock_Technicals("T3", symbol, interval, time_period, series_type);
-  }
-  // reduces redundant code from next two functions
-  MACX(String func, String symbol, dynamic interval, int time_period, String series_type, {int fastperiod, int slowperiod, int signalperiod, Map<String,String> extraContent}){
-    Map<String, String> extraExtra = {};
-    if(fastperiod!=null){
-      if(fastperiod<1){
-        print("Fast period must be positive");
-        return "";
-      }
-      extraExtra["fastlimit"] = fastperiod.toString();
-    }
-    if(slowperiod!=null){
-      if(slowperiod<1){
-        print("Slow period must be positive");
-        return "";
-      }
-      extraExtra["slowlimit"] = slowperiod.toString();
-    }
-    if(signalperiod!=null){
-      if(signalperiod<1){
-        print("Signal period must be positive");
-        return "";
-      }
-      extraExtra["signallimit"] = signalperiod.toString();
-    }
-    extraExtra.addAll(extraContent);
-    return Stock_Technicals(func, symbol, interval, time_period, series_type, extraExtra);
+    return _TechSIPT("T3", symbol, interval, time_period, series_type);
   }
 
-  MACD(String symbol, dynamic interval, int time_period, String series_type, {int fastperiod, int slowperiod, int signalperiod}){
-    return MACX("MACD", symbol, interval, time_period, series_type, fastperiod: fastperiod, slowperiod: slowperiod, signalperiod: signalperiod);
+  MACD(String symbol, dynamic interval, int time_period, String series_type,
+      {int fastperiod=12, int slowperiod=26, int signalperiod=9}){
+    String func = "MACD";
+    if(isPositive(fastperiod, func, "fastperiod")&&
+        isPositive(slowperiod, func, "slowperiod")&&
+        isPositive(signalperiod, func, "signalperiod")){
+      return _TechSIPT(func, symbol, interval, time_period, series_type, extras: {
+        "fastperiod":fastperiod.toString(),
+        "slowperiod":slowperiod.toString(),
+        "signalperiod":signalperiod.toString(),
+      });
+    }
   }
 
-  MACDEXT(String symbol, dynamic interval, int time_period, String series_type, {int fastperiod, int slowperiod, int signalperiod, int fastmatype, int slowmatype, int signalmatype}){
-    Map<String, String> extraExtra = {};
-    if(fastmatype!=null){
-      if(fastmatype>9||fastmatype<0){
-        print("Fast ma type is out of range");
-        return "";
-      }
-      extraExtra["fastmatype"] = fastmatype.toString();
+  MACDEXT(String symbol, dynamic interval, int time_period, String series_type,
+      {int fastperiod=12, int slowperiod=26, int signalperiod=9,
+        int fastmatype=0, int slowmatype=0, int signalmatype=0}){
+    String func = "MACDEXT";
+    if(isPositive(fastperiod, func, "fastperiod")&&
+        isPositive(slowperiod, func, "slowperiod")&&
+        isPositive(signalperiod, func, "signalperiod")&&
+        inRange(fastmatype, 0, 8, func, "fastmatype")&&
+        inRange(slowmatype, 0, 8, func, "slowmatype")&&
+        inRange(signalmatype, 0, 8, func, "signalmatype")){
+      return _TechSIPT(func, symbol, interval, time_period, series_type, extras: {
+        "fastperiod":fastperiod.toString(),
+        "slowperiod":slowperiod.toString(),
+        "signalperiod":signalperiod.toString(),
+        "fastmatype":fastmatype.toString(),
+        "slowmatype":slowmatype.toString(),
+        "signalmatype":signalmatype.toString()
+      });
     }
-    if(slowmatype!=null){
-      if(slowmatype>9||slowmatype<0){
-        print("Slow ma type is out of range");
-        return "";
-      }
-      extraExtra["slowmatype"] = slowmatype.toString();
-    }
-    if(signalmatype!=null){
-      if(signalmatype>9||signalmatype<0){
-        print("Signal ma type is out of range");
-        return "";
-      }
-      extraExtra["signalmatype"] = signalmatype.toString();
-    }
-    return MACX("MACDEXT", symbol, interval, time_period, series_type, fastperiod: fastperiod, slowperiod: slowperiod, signalperiod: signalperiod, extraContent: extraExtra);
   }
-
-
+  STOCH(String symbol, dynamic interval, {int fastkperiod=5, int slowkperiod=3, int slowdperiod=3, int slowkmatype=3, int slowdmatype=0}){
+    String func = "STOCH";
+    if(isPositive(fastkperiod, func, "fastkperiod")&&
+        isPositive(slowkperiod, func, "slowkperiod")&&
+        isPositive(slowdperiod, func, "slowdperiod")&&
+        inRange(slowdmatype, 0, 8, func, "slowdmatype")&&
+        inRange(slowkmatype, 0, 8, func, "slowkmatype")){
+      return _TechSI(func, symbol, interval, extras: {
+      "fastkperiod":fastkperiod.toString(),
+      "slowkperiod":slowkperiod.toString(),
+      "slowdperiod":slowdperiod.toString(),
+      "slowkmatype":slowkmatype.toString(),
+      "slowdmatype":slowdmatype.toString()});
+    }
+  }
+  STOCHF(String symbol, dynamic interval, {int fastkperiod=5, int fastdperiod=3, int fastdmatype=3}){
+    String func = "STOCHF";
+    if(isPositive(fastkperiod, func, "fastkperiod")&&
+        isPositive(fastdperiod, func, "fastdperiod")&&
+        inRange(fastdmatype, 0, 8, func, "fastdmatype")){
+      return _TechSI(func, symbol, interval, extras: {
+                                            "fastkperiod":fastkperiod,
+                                            "fastdperiod":fastdperiod,
+                                            "fastdmatype":fastdmatype
+                                            });
+    }
+  }
+  RSI(String symbol, dynamic interval, int time_period, String series_type){
+    return _TechSIPT("RSI", symbol, interval, time_period, series_type);
+  }
+  STOCHRSI(String symbol, dynamic interval, int time_period, String series_type, {int fastkperiod=5, int fastdperiod=3, int fastdmatype=3}){
+    String func = "STOCHRSI";
+    if(isPositive(fastkperiod, func, "fastkperiod")&&
+        isPositive(fastdperiod, func, "fastdperiod")&&
+        inRange(fastdmatype, 0, 8, func, "fastdmatype")){
+      return _TechSIPT(func, symbol, interval, time_period, series_type, extras: {
+                "fastkperiod":fastkperiod,
+                "fastdperiod":fastdperiod,
+                "fastdmatype":fastdmatype
+                });
+    }
+  }
+  WILLR(String symbol, dynamic interval, int time_period){
+    return _TechSIP("WILLR", symbol, interval, time_period);
+  }
+  ADX(String symbol, dynamic interval, int time_period){
+    return _TechSIP("ADX", symbol, interval, time_period);
+  }
+  ADXR(String symbol, dynamic interval, int time_period){
+    return _TechSIP("ADX", symbol, interval, time_period);
+  }
+  APO(String symbol, dynamic interval, String series_type, {int fastperiod=12, int slowperiod = 26, int matype = 0}){
+    String func = 'APO';
+    if( isPositive(fastperiod, func, 'fastperiod')&&
+        isPositive(slowperiod, func, 'slowperiod')&&
+        inRange(matype, 0, 8, func, 'matype')){
+      return _TechSIT(func, symbol, interval, series_type, extras: {
+                                            "fastperiod":fastperiod.toString(),
+                                            "slowperiod":slowperiod.toString(),
+                                            "matype": matype.toString()});
+    }
+  }
+  PPO(String symbol, dynamic interval, String series_type, {int fastperiod=12, int slowperiod = 26, int matype = 0}){
+    String func = 'PPO';
+    if( isPositive(fastperiod, func, 'fastperiod')&&
+        isPositive(slowperiod, func, 'slowperiod')&&
+        inRange(matype, 0, 8, func, 'matype')){
+      return _TechSIT(func, symbol, interval, series_type, extras: {
+        "fastperiod":fastperiod.toString(),
+        "slowperiod":slowperiod.toString(),
+        "matype": matype.toString()});
+    }
+  }
+  MOM(String symbol, dynamic interval, int time_period, String series_type){
+    return _TechSIPT("MOM", symbol, interval, time_period, series_type);
+  }
+  BOP(String symbol, dynamic interval){
+    return _TechSI("BOP", symbol, interval);
+  }
+  CCI(String symbol, dynamic interval, int time_period){
+    return _TechSIP("CCI", symbol, interval, time_period);
+  }
+  CMO(String symbol, dynamic interval, int time_period, String series_type){
+    return _TechSIPT("CMO", symbol, interval, time_period, series_type);
+  }
+  ROC(String symbol, dynamic interval, int time_period, String series_type){
+    return _TechSIPT("ROC", symbol, interval, time_period, series_type);
+  }
+  ROCR(String symbol, dynamic interval, int time_period, String series_type){
+    return _TechSIPT("ROCR", symbol, interval, time_period, series_type);
+  }
+  AROON(String symbol, dynamic interval, int time_period){
+    return _TechSIP("AROON", symbol, interval, time_period);
+  }
+  AROONOSC(String symbol, dynamic interval, int time_period){
+    return _TechSIP("AROONOSC", symbol, interval, time_period);
+  }
+  MFI(String symbol, dynamic interval, int time_period){
+    return _TechSIP("MFI", symbol, interval, time_period);
+  }
+  TRIX(String symbol, dynamic interval, int time_period, String series_type){
+    return _TechSIPT("TRIX", symbol, interval, time_period, series_type);
+  }
+  ULTOSC(String symbol, dynamic interval, {int timeperiod1=7, int timeperiod2=14, int timeperiod3=28}){
+    String func = 'ULTOSC';
+    if( isPositive(timeperiod1, func, "timeperiod1")&&
+        isPositive(timeperiod2, func, "timeperiod2")&&
+        isPositive(timeperiod3, func, "timeperiod3")){
+      return _TechSI(func, symbol, interval, extras: {
+        'timeperiod1':timeperiod1.toString(),
+        'timeperiod2':timeperiod2.toString(),
+        'timeperiod3':timeperiod3.toString()});
+    }
+  }
+  DX(String symbol, dynamic interval, int time_period){
+    return _TechSIP("DX", symbol, interval, time_period);
+  }
+  MINUS_DI(String symbol, dynamic interval, int time_period){
+    return _TechSIP("MINUS_DI", symbol, interval, time_period);
+  }
+  PLUS_DI(String symbol, dynamic interval, int time_period){
+    return _TechSIP("PLUS_DI", symbol, interval, time_period);
+  }
+  MINUS_DM(String symbol, dynamic interval, int time_period){
+    return _TechSIP("MINUS_DM", symbol, interval, time_period);
+  }
+  PLUS_DM(String symbol, dynamic interval, int time_period){
+    return _TechSIP("PLUS_DM", symbol, interval, time_period);
+  }
+  BBANDS(String symbol, dynamic interval, int time_period, String series_type, {int nbdevup=2, int nbdevdn=2, int matype=0}){
+    String func = 'BBANDS';
+    if( isPositive(nbdevup, func, "nbdevup")&&
+        isPositive(nbdevdn, func, "nbdevdn")&&
+        matypeInRange(matype, func)){
+      return _TechSIPT(func, symbol, interval, time_period, series_type, extras: {
+        "nbdevup":nbdevup.toString(),
+        "nbdevdn":nbdevdn.toString(),
+        "matype":matype.toString()});
+    }
+  }
+  MIDPOINT(String symbol, dynamic interval, int time_period, String series_type){
+    return _TechSIPT("MIDPOINT", symbol, interval, time_period, series_type);
+  }
+  MIDPRICE(String symbol, dynamic interval, int time_period) {
+    return _TechSIP("MIDPRICE", symbol, interval, time_period);
+  }
+  SAR(String symbol, dynamic interval, {double acceleration=0.01, double maximum=0.20}){
+    String func = 'SAR';
+    if( isPositive(acceleration, func, 'acceleration')&&
+        isPositive(maximum, func, 'maximum')){
+      return _TechSI(func, symbol, interval, extras: {
+        'acceleration': acceleration.toString(),
+        'maximum':maximum.toString()});
+    }
+  }
+  TRANGE(String symbol, dynamic interval){
+    return _TechSI("TRANGE", symbol, interval);
+  }
+  ATR(String symbol, dynamic interval, int time_period){
+    return _TechSIP("ATR", symbol, interval, time_period);
+  }
+  NATR(String symbol, dynamic interval, int time_period){
+    return _TechSIP("NATR", symbol, interval, time_period);
+  }
+  AD(String symbol, dynamic interval){
+    return _TechSI("AD", symbol, interval);
+  }
+  ADOSC(String symbol, dynamic interval, {int fastperiod=3, int slowperiod=10}){
+    String func = 'ADOSC';
+    if( isPositive(fastperiod, func, 'fastperiod')&&
+        isPositive(slowperiod, func, 'slowperiod')){
+      return _TechSI(func, symbol, interval, extras: {
+        'fastperiod':fastperiod.toString(),
+        'slowperiod':slowperiod.toString()});
+    }
+  }
+  OBV(String symbol, dynamic interval){
+    return _TechSI("OBV", symbol, interval);
+  }
+  HT_TRENDLINE(String symbol, dynamic interval, String series_type){
+    return _TechSIT("HT_TRENDLINE", symbol, interval, series_type);
+  }
+  HT_SINE(String symbol, dynamic interval, String series_type){
+    return _TechSIT("HT_SINE", symbol, interval, series_type);
+  }
+  HT_TRENDMODE(String symbol, dynamic interval, String series_type){
+    return _TechSIT("HT_TRENDMODE", symbol, interval, series_type);
+  }
+  HT_DCPERIOD(String symbol, dynamic interval, String series_type){
+    return _TechSIT("HT_DCPERIOD", symbol, interval, series_type);
+  }
+  HT_DCPHASE(String symbol, dynamic interval, String series_type){
+    return _TechSIT("HT_DCPHASE", symbol, interval, series_type);
+  }
+  HT_PHASOR(String symbol, dynamic interval, String series_type){
+    return _TechSIT("HT_PHASOR", symbol, interval, series_type);
+  }
 }
